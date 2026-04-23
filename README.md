@@ -261,6 +261,48 @@ messenger/
 └── README.md
 ```
 
+### Kubernetes manifests layout
+
+The `k8s/` directory is intended to contain the deployment manifests for each infrastructure component and service.
+
+Suggested layout:
+
+```text
+k8s/
+├── namespace.yaml
+├── ingress.yaml
+├── postgres/
+│   ├── secret.yaml
+│   ├── service.yaml
+│   └── statefulset.yaml
+├── kafka/
+│   ├── service.yaml
+│   └── statefulset.yaml
+├── auth-service/
+│   ├── configmap.yaml
+│   ├── deployment.yaml
+│   └── service.yaml
+├── chat-service/
+│   ├── configmap.yaml
+│   ├── deployment.yaml
+│   └── service.yaml
+├── message-worker/
+│   ├── configmap.yaml
+│   └── deployment.yaml
+└── frontend/
+    ├── configmap.yaml
+    ├── deployment.yaml
+    └── service.yaml
+```
+
+Each service directory should contain the Kubernetes resources needed to run that component in the cluster:
+
+- `deployment.yaml` for stateless application workloads
+- `statefulset.yaml` for stateful infrastructure such as PostgreSQL or Kafka
+- `service.yaml` for stable in-cluster network access
+- `configmap.yaml` for non-sensitive runtime configuration
+- `secret.yaml` for sensitive values such as passwords or shared JWT secrets
+
 ---
 
 ## Local Development (Kubernetes)
@@ -274,8 +316,30 @@ messenger/
 
 ```bash
 minikube start
+minikube addons enable ingress
 # or
 kind create cluster --name messenger
+```
+
+> If you use minikube and want to build images directly into the cluster Docker daemon,
+> run `eval $(minikube docker-env)` before `docker build`.
+
+### Build container images
+
+```bash
+docker build -t messenger/auth-service:dev ./auth-service
+docker build -t messenger/chat-service:dev ./chat-service
+docker build -t messenger/message-worker:dev ./message-worker
+docker build -t messenger/frontend:dev ./frontend
+```
+
+If you are **not** using `eval $(minikube docker-env)`, load the images into minikube explicitly:
+
+```bash
+minikube image load messenger/auth-service:dev
+minikube image load messenger/chat-service:dev
+minikube image load messenger/message-worker:dev
+minikube image load messenger/frontend:dev
 ```
 
 ### Deploy
@@ -289,14 +353,20 @@ kubectl apply -f k8s/postgres/
 kubectl apply -f k8s/kafka/
 
 # Wait for infra to be ready
-kubectl wait --for=condition=ready pod -l app=postgres -n messenger --timeout=60s
-kubectl wait --for=condition=ready pod -l app=kafka   -n messenger --timeout=60s
+kubectl wait --for=condition=ready pod -l app=postgres -n messenger --timeout=120s
+kubectl wait --for=condition=ready pod -l app=kafka   -n messenger --timeout=120s
 
 # Services
 kubectl apply -f k8s/auth-service/
 kubectl apply -f k8s/chat-service/
 kubectl apply -f k8s/message-worker/
 kubectl apply -f k8s/frontend/
+
+# Wait for app pods to be ready
+kubectl wait --for=condition=ready pod -l app=auth-service   -n messenger --timeout=120s
+kubectl wait --for=condition=ready pod -l app=chat-service   -n messenger --timeout=120s
+kubectl wait --for=condition=ready pod -l app=message-worker -n messenger --timeout=120s
+kubectl wait --for=condition=ready pod -l app=frontend       -n messenger --timeout=120s
 
 # Ingress
 kubectl apply -f k8s/ingress.yaml
@@ -309,6 +379,66 @@ minikube service frontend -n messenger
 # or via ingress:
 minikube tunnel  # then visit http://messenger.local
 ```
+
+If you use ingress with a custom local hostname such as `messenger.local`, add it to `/etc/hosts` if needed.
+
+### Health checks and resource requests
+
+Each application Deployment should define:
+
+- `resources.requests` and `resources.limits`
+- `readinessProbe` to signal when the container is ready to receive traffic
+- `livenessProbe` to restart the container if it becomes unhealthy
+
+Example snippet for a stateless service:
+
+```yaml
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 15
+  periodSeconds: 20
+```
+
+These settings help avoid routing traffic to a container that has started but is not yet ready, and they make local debugging in minikube much easier.
+
+### Troubleshooting
+
+Use the following commands to inspect the cluster if something does not start correctly:
+
+```bash
+kubectl get pods -n messenger
+kubectl describe pod <pod-name> -n messenger
+kubectl logs <pod-name> -n messenger
+kubectl get svc -n messenger
+kubectl get ingress -n messenger
+kubectl exec -it <pod-name> -n messenger -- sh
+```
+
+What they are useful for:
+
+- `kubectl get pods` — check whether pods are running, pending, or crashing
+- `kubectl describe pod` — inspect events such as failed mounts, image pull errors, failed probes, or scheduling issues
+- `kubectl logs` — read application logs from the container
+- `kubectl get svc` — verify that Services were created and expose the expected ports
+- `kubectl get ingress` — confirm that ingress rules were created correctly
+- `kubectl exec` — enter a running container to inspect environment variables, DNS, and network connectivity from inside the cluster
 
 ---
 
