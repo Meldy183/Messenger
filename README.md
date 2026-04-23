@@ -249,53 +249,35 @@ messenger/
 │
 ├── k8s/
 │   ├── namespace.yaml
+│   ├── ingress.yaml
 │   ├── postgres/
+│   │   ├── secret.yaml
+│   │   ├── service.yaml
+│   │   └── statefulset.yaml
 │   ├── kafka/
+│   │   ├── service.yaml
+│   │   └── statefulset.yaml
 │   ├── auth-service/
+│   │   ├── configmap.yaml
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
 │   ├── chat-service/
+│   │   ├── configmap.yaml
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
 │   ├── message-worker/
-│   ├── frontend/
-│   └── ingress.yaml
+│   │   ├── configmap.yaml
+│   │   └── deployment.yaml
+│   └── frontend/
+│       ├── configmap.yaml
+│       ├── deployment.yaml
+│       └── service.yaml
 │
 ├── SPEC.md
 └── README.md
 ```
 
-### Kubernetes manifests layout
-
-The `k8s/` directory is intended to contain the deployment manifests for each infrastructure component and service.
-
-Suggested layout:
-
-```text
-k8s/
-├── namespace.yaml
-├── ingress.yaml
-├── postgres/
-│   ├── secret.yaml
-│   ├── service.yaml
-│   └── statefulset.yaml
-├── kafka/
-│   ├── service.yaml
-│   └── statefulset.yaml
-├── auth-service/
-│   ├── configmap.yaml
-│   ├── deployment.yaml
-│   └── service.yaml
-├── chat-service/
-│   ├── configmap.yaml
-│   ├── deployment.yaml
-│   └── service.yaml
-├── message-worker/
-│   ├── configmap.yaml
-│   └── deployment.yaml
-└── frontend/
-    ├── configmap.yaml
-    ├── deployment.yaml
-    └── service.yaml
-```
-
-Each service directory should contain the Kubernetes resources needed to run that component in the cluster:
+The `k8s/` directory contains the Kubernetes resources needed to run each infrastructure component and service in the cluster:
 
 - `deployment.yaml` for stateless application workloads
 - `statefulset.yaml` for stateful infrastructure such as PostgreSQL or Kafka
