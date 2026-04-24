@@ -1,0 +1,570 @@
+openapi: 3.0.3
+
+info:
+  title: Messenger API
+  version: "1.0.0"
+  description: |
+    REST API contract for Messenger MVP_0.
+
+    ## Envelope
+    Every response uses this wrapper:
+    ```json
+    { "data": <payload | null>, "error": <null | { "code": <int>, "message": "<string>" }> }
+    ```
+
+    ## WebSocket (not expressible in OpenAPI)
+    ```
+    WS /ws?token=<jwt>
+    ```
+    On connect the server auto-subscribes the client to all rooms they are a member of.
+
+    Client → Server:
+    ```json
+    { "type": "send_message", "room_id": "<uuid>", "content": "..." }
+    ```
+
+    Server → Client:
+    ```json
+    { "type": "new_message", "message": { ...Message } }
+    { "type": "error",       "message": "..." }
+    ```
+
+    ## Internal endpoint (message-worker → chat-service)
+    ```
+    POST /internal/broadcast
+    Body: { "room_id": "<uuid>", "message": { ...Message } }
+    ```
+    No auth. Accessible only within the K8s cluster (ClusterIP, not exposed by Ingress).
+
+servers:
+  - url: http://messenger.local/api/v1
+    description: Local Kubernetes cluster
+
+security:
+  - bearerAuth: []
+
+# ---------------------------------------------------------------------------
+# Reusable components
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    # --- Error -----------------------------------------------------------------
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          example: 404
+        message:
+          type: string
+          example: room not found
+
+    # --- Users -----------------------------------------------------------------
+    User:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          example: fyodor
+
+    UserFull:
+      type: object
+      required: [id, username, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          example: fyodor
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-04-24T10:00:00Z"
+
+    # --- Rooms -----------------------------------------------------------------
+    Room:
+      type: object
+      required: [id, is_dm, created_by, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+          example: general
+        is_dm:
+          type: boolean
+          example: false
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-04-24T10:00:00Z"
+
+    DmRoom:
+      type: object
+      required: [id, is_dm, created_by, created_at, other_user]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+          example: null
+        is_dm:
+          type: boolean
+          example: true
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-04-24T10:00:00Z"
+        other_user:
+          $ref: '#/components/schemas/User'
+
+    # --- Messages --------------------------------------------------------------
+    Message:
+      type: object
+      required: [id, room_id, sender_id, sender_username, content, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        sender_id:
+          type: string
+          format: uuid
+        sender_username:
+          type: string
+          example: fyodor
+        content:
+          type: string
+          example: hello world
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-04-24T10:00:00Z"
+
+    # --- Envelope helpers ------------------------------------------------------
+    TokenData:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiJ9...
+
+  # --- Reusable responses ------------------------------------------------------
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { nullable: true, example: null }
+              error: { $ref: '#/components/schemas/ApiError' }
+          example:
+            data: null
+            error: { code: 401, message: unauthorized }
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { nullable: true, example: null }
+              error: { $ref: '#/components/schemas/ApiError' }
+          example:
+            data: null
+            error: { code: 404, message: room not found }
+
+    Forbidden:
+      description: Valid JWT but insufficient permissions
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { nullable: true, example: null }
+              error: { $ref: '#/components/schemas/ApiError' }
+          example:
+            data: null
+            error: { code: 403, message: not a member of this room }
+
+    NoContent:
+      description: Success, no body
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  # ── Auth ──────────────────────────────────────────────────────────────────
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: fyodor
+                password:
+                  type: string
+                  example: secret
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/UserFull' }
+                  error: { nullable: true, example: null }
+        "400":
+          description: Missing or empty fields
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 400, message: username is required }
+        "409":
+          description: Username already taken
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 409, message: username already taken }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and receive a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: fyodor
+                password:
+                  type: string
+                  example: secret
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/TokenData' }
+                  error: { nullable: true, example: null }
+        "400":
+          description: Missing fields
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 400, message: username is required }
+        "401":
+          description: Wrong credentials
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 401, message: invalid credentials }
+
+  # ── Users ─────────────────────────────────────────────────────────────────
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List all registered users
+      responses:
+        "200":
+          description: User list (includes the requesting user)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/User' }
+                  error: { nullable: true, example: null }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get own profile
+      responses:
+        "200":
+          description: Current user's profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/UserFull' }
+                  error: { nullable: true, example: null }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── Rooms ─────────────────────────────────────────────────────────────────
+
+  /rooms:
+    post:
+      tags: [Rooms]
+      summary: Create a public room
+      description: |
+        Creator is automatically added as a member.
+        Provisions Kafka topic `room.<uuid>` (1 partition, RF=1).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: general
+      responses:
+        "201":
+          description: Room created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Room' }
+                  error: { nullable: true, example: null }
+        "400":
+          description: Name is empty
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 400, message: name is required }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "409":
+          description: Room name already taken
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 409, message: room name already taken }
+
+    get:
+      tags: [Rooms]
+      summary: List all public rooms
+      description: Returns all rooms where `is_dm = false`. Does not filter by membership.
+      responses:
+        "200":
+          description: Public room list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Room' }
+                  error: { nullable: true, example: null }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /rooms/me:
+    get:
+      tags: [Rooms]
+      summary: List rooms the current user has joined
+      description: Returns public rooms only (no DMs). Filter by membership.
+      responses:
+        "200":
+          description: Joined room list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Room' }
+                  error: { nullable: true, example: null }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /rooms/{id}/join:
+    post:
+      tags: [Rooms]
+      summary: Join a public room
+      description: Idempotent — joining a room you are already in returns 204.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { $ref: '#/components/responses/NoContent' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403":
+          description: Room is a DM — cannot join directly
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 403, message: cannot join a DM room }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{id}/leave:
+    post:
+      tags: [Rooms]
+      summary: Leave a room
+      description: Idempotent — leaving a room you are not in returns 204.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { $ref: '#/components/responses/NoContent' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{id}/messages:
+    get:
+      tags: [Messages]
+      summary: Get message history for a room
+      description: |
+        Newest-first. `offset=0` returns the most recent messages.
+        Increasing offset pages toward older messages.
+        Caller must be a member of the room.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 100 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Message list (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Message' }
+                  error: { nullable: true, example: null }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── Direct Messages ───────────────────────────────────────────────────────
+
+  /dms:
+    post:
+      tags: [DMs]
+      summary: Create or retrieve a DM conversation
+      description: |
+        If a DM between the two users already exists, returns it.
+        Always responds with 201 regardless.
+        You cannot DM yourself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: DM room (new or existing)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/DmRoom' }
+                  error: { nullable: true, example: null }
+        "400":
+          description: Missing user_id or attempting to DM yourself
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 400, message: cannot create a DM with yourself }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404":
+          description: Target user not found
+          content:
+            application/json:
+              example:
+                data: null
+                error: { code: 404, message: user not found }
+
+    get:
+      tags: [DMs]
+      summary: List all DM conversations for the current user
+      responses:
+        "200":
+          description: DM conversation list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/DmRoom' }
+                  error: { nullable: true, example: null }
+        "401": { $ref: '#/components/responses/Unauthorized' }
