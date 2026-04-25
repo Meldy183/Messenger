@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ func TestCreateUser_UsernameTaken(t *testing.T) {
 			WillReturnError(&pq.Error{Code: "23505"})
 
 		_, err := repo.CreateUser(context.Background(), "fyodor", "hashed")
-		if err != ErrUsernameTaken {
+		if !errors.Is(err, ErrUsernameTaken) {
 			t.Errorf("want ErrUsernameTaken, got %v", err)
 		}
 		if err := mock.ExpectationsWereMet(); err != nil {
@@ -122,7 +123,7 @@ func TestGetByUsername_NotFound(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.GetByUsername(context.Background(), "fyodor")
-		if err != ErrNotFound {
+		if !errors.Is(err, ErrNotFound) {
 			t.Errorf("want ErrNotFound, got %v", err)
 		}
 		if err := mock.ExpectationsWereMet(); err != nil {

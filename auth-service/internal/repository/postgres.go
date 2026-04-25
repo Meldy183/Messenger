@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/fyodor/messenger/auth-service/internal/domain"
@@ -27,6 +28,7 @@ func NewDB(dsn string) (*sql.DB, error) {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(2 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		db.Close()
@@ -43,8 +45,8 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, username, passwordH
 	err := r.db.QueryRowContext(ctx, q, uuid.NewString(), username, passwordHash, time.Now().UTC()).
 		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt)
 	if err != nil {
-		// 23505 is the PostgreSQL unique_violation error code
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 			return nil, ErrUsernameTaken
 		}
 		return nil, err
@@ -60,7 +62,7 @@ func (r *PostgresRepository) GetByUsername(ctx context.Context, username string)
 	err := r.db.QueryRowContext(ctx, q, username).
 		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err

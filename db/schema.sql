@@ -1,0 +1,32 @@
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE IF NOT EXISTS users (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username    TEXT UNIQUE NOT NULL,
+    password    TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS rooms (
+    id          UUID PRIMARY KEY,
+    name        TEXT UNIQUE,
+    is_dm       BOOLEAN NOT NULL DEFAULT false,
+    created_by  UUID NOT NULL REFERENCES users(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS room_members (
+    room_id     UUID NOT NULL REFERENCES rooms(id),
+    user_id     UUID NOT NULL REFERENCES users(id),
+    joined_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (room_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id               UUID PRIMARY KEY,
+    room_id          UUID NOT NULL REFERENCES rooms(id),
+    sender_id        UUID NOT NULL REFERENCES users(id),
+    sender_username  TEXT NOT NULL,
+    content          TEXT NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);

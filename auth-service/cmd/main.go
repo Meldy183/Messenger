@@ -2,11 +2,18 @@ package main
 
 import (
 	"log"
+	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
 	"github.com/fyodor/messenger/auth-service/internal/config"
+	"github.com/fyodor/messenger/auth-service/internal/handler"
+	"github.com/fyodor/messenger/auth-service/internal/repository"
+	"github.com/fyodor/messenger/auth-service/internal/service"
 	"github.com/fyodor/messenger/pkg/logger"
+	"github.com/fyodor/messenger/pkg/middleware"
+	"github.com/fyodor/messenger/pkg/postgres"
 )
 
 func main() {
@@ -16,10 +23,26 @@ func main() {
 	}
 
 	l := logger.Must(cfg.Env)
-	defer l.Sync() // flushes any buffered log entries on exit
+	defer l.Sync()
 
-	l.Info("auth-service starting",
-		zap.String("port", cfg.Port),
-		zap.String("env", cfg.Env),
-	)
+	db, err := postgres.New(cfg.DBDSN)
+	if err != nil {
+		l.Fatal("database connection failed", zap.Error(err))
+	}
+	defer db.Close()
+
+	repo := repository.NewPostgresRepository(db)
+	svc := service.New(repo, cfg.JWTSecret)
+	h := handler.New(svc)
+
+	r := chi.NewRouter()
+	r.Use(middleware.Logger(l))
+
+	r.Post("/api/v1/auth/register", h.Register)
+	r.Post("/api/v1/auth/login", h.Login)
+
+	l.Info("auth-service listening", zap.String("port", cfg.Port))
+	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
+		l.Fatal("server error", zap.Error(err))
+	}
 }
