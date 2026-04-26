@@ -42,6 +42,7 @@ func (h *Handler) WebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := hub.NewClient(userID, username, conn)
+	h.hub.RegisterClient(client)
 	defer h.hub.Unsubscribe(client)
 
 	// Subscribe to all joined public rooms.

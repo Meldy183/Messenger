@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fyodor/messenger/chat-service/internal/domain"
+	"github.com/fyodor/messenger/chat-service/internal/kafka"
 	"github.com/fyodor/messenger/chat-service/internal/service"
 	"github.com/fyodor/messenger/pkg/logger"
 	"github.com/fyodor/messenger/pkg/middleware"
@@ -59,6 +60,13 @@ func (h *Handler) CreateOrGetDM(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// Provision Kafka topic for this DM room — best-effort, same as public rooms.
+	go func() {
+		if err := kafka.CreateTopic(h.kafkaBroker, dm.Room.ID); err != nil {
+			logger.L(r.Context()).Warn("kafka DM topic creation failed", zap.String("room_id", dm.Room.ID), zap.Error(err))
+		}
+	}()
+
 	response.JSON(w, http.StatusCreated, toDMRoomResponse(dm))
 }
 

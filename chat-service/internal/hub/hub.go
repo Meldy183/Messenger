@@ -17,14 +17,18 @@ const (
 	MaxMsgSize = 4096
 )
 
-// Hub manages WebSocket clients grouped by room.
+// Hub manages WebSocket clients grouped by room and indexed by userID for mid-session updates.
 type Hub struct {
-	mu    sync.RWMutex
-	rooms map[string]map[*Client]struct{}
+	mu      sync.RWMutex
+	rooms   map[string]map[*Client]struct{} // roomID → clients
+	byUser  map[string]*Client              // userID → active client (at most one WS session per user)
 }
 
 func New() *Hub {
-	return &Hub{rooms: make(map[string]map[*Client]struct{})}
+	return &Hub{
+		rooms:  make(map[string]map[*Client]struct{}),
+		byUser: make(map[string]*Client),
+	}
 }
 
 func (h *Hub) Subscribe(roomID string, c *Client) {
@@ -36,12 +40,37 @@ func (h *Hub) Subscribe(roomID string, c *Client) {
 	h.rooms[roomID][c] = struct{}{}
 }
 
+// SubscribeUser subscribes the currently connected client for userID to roomID, if
+// they have an active WebSocket session. Called by the REST join handler so that
+// mid-session joins immediately receive real-time messages.
+func (h *Hub) SubscribeUser(roomID, userID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	c, ok := h.byUser[userID]
+	if !ok {
+		return // user has no active WS session — nothing to do
+	}
+	if h.rooms[roomID] == nil {
+		h.rooms[roomID] = make(map[*Client]struct{})
+	}
+	h.rooms[roomID][c] = struct{}{}
+}
+
+// RegisterClient records the client as the active session for its userID.
+// Must be called after NewClient, before readPump.
+func (h *Hub) RegisterClient(c *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.byUser[c.UserID] = c
+}
+
 func (h *Hub) Unsubscribe(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, clients := range h.rooms {
 		delete(clients, c)
 	}
+	delete(h.byUser, c.UserID)
 }
 
 // Broadcast implements service.Broadcaster — pushes a message to all clients in the room.
