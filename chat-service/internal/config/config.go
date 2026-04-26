@@ -6,18 +6,20 @@ import (
 )
 
 type Config struct {
-	Env       string
-	Port      string
-	DBDSN     string
-	JWTSecret string
+	Env          string
+	Port         string
+	DBDSN        string
+	JWTSecret    string
+	KafkaBrokers string
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
 		Env:       getEnv("ENV", "development"),
 		Port:      getEnv("PORT", "8081"),
-		DBDSN:     os.Getenv("DATABASE_URL"),
-		JWTSecret: os.Getenv("JWT_SECRET"),
+		DBDSN:        os.Getenv("DATABASE_URL"),
+		JWTSecret:    os.Getenv("JWT_SECRET"),
+		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 	}
 
 	var errs []error

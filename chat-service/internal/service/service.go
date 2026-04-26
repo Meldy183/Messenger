@@ -42,6 +42,7 @@ type RoomService interface {
 
 	ListPublic(ctx context.Context) ([]*domain.Room, error)
 	ListJoined(ctx context.Context, userID string) ([]*domain.Room, error)
+	IsMember(ctx context.Context, roomID, userID string) (bool, error)
 }
 
 type DMService interface {

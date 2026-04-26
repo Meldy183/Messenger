@@ -68,3 +68,11 @@ func (s *roomService) ListJoined(ctx context.Context, userID string) ([]*domain.
 	}
 	return rooms, nil
 }
+
+func (s *roomService) IsMember(ctx context.Context, roomID, userID string) (bool, error) {
+	ok, err := s.repo.IsMember(ctx, roomID, userID)
+	if err != nil {
+		return false, fmt.Errorf("roomService.IsMember: %w", err)
+	}
+	return ok, nil
+}
