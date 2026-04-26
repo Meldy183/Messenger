@@ -29,6 +29,7 @@ func NewProducer(brokers string) *Producer {
 	w := &kafkaio.Writer{
 		Addr:                   kafkaio.TCP(strings.Split(brokers, ",")...),
 		Balancer:               &kafkaio.LeastBytes{},
+		RequiredAcks:           kafkaio.RequireAll, // acks=all — NFR-3
 		AllowAutoTopicCreation: false,
 	}
 	return &Producer{writer: w}

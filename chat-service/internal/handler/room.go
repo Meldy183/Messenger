@@ -120,6 +120,8 @@ func (h *Handler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// If the user has an active WebSocket session, subscribe them immediately.
+	h.hub.SubscribeUser(roomID, userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

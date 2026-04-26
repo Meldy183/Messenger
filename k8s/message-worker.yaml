@@ -18,15 +18,15 @@ spec:
           image: messenger/message-worker:latest
           imagePullPolicy: Never
           env:
-            - name: ENV
-              value: production
-            - name: DATABASE_URL
-              value: postgres://messenger:$(DB_PASSWORD)@postgres:5432/messenger?sslmode=disable
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: messenger-secrets
                   key: db-password
+            - name: ENV
+              value: production
+            - name: DATABASE_URL
+              value: postgres://messenger:$(DB_PASSWORD)@postgres:5432/messenger?sslmode=disable
             - name: KAFKA_BROKERS
               value: kafka:9092
             - name: KAFKA_GROUP_ID
