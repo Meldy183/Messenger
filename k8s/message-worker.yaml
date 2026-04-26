@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: message-worker
+  namespace: messenger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: message-worker
+  template:
+    metadata:
+      labels:
+        app: message-worker
+    spec:
+      containers:
+        - name: message-worker
+          image: messenger/message-worker:latest
+          imagePullPolicy: Never
+          env:
+            - name: ENV
+              value: production
+            - name: DATABASE_URL
+              value: postgres://messenger:$(DB_PASSWORD)@postgres:5432/messenger?sslmode=disable
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: messenger-secrets
+                  key: db-password
+            - name: KAFKA_BROKERS
+              value: kafka:9092
+            - name: KAFKA_GROUP_ID
+              value: message-worker
+            - name: CHAT_SERVICE_URL
+              value: http://chat-service:8081
