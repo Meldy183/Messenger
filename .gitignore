@@ -1,3 +1,11 @@
+# IDE files
 .idea/
 .[Vv][Ss][Cc]ode*
+
+# Environment files
 *.env
+
+
+#k8s secrets
+secrets.yaml
+*.secret.yaml
