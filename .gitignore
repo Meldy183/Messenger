@@ -4,6 +4,9 @@
 
 # Environment files
 *.env
+.gitignore
+.claude
+=======
 
 
 #k8s secrets

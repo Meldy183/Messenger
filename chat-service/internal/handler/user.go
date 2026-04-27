@@ -48,5 +48,5 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		response.Err(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	response.JSON(w, http.StatusOK, userResponse{ID: user.ID, Username: user.Username})
+	response.JSON(w, http.StatusOK, userResponse{ID: user.ID, Username: user.Username, CreatedAt: user.CreatedAt})
 }

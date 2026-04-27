@@ -41,8 +41,7 @@ func (h *Handler) CreateOrGetDM(w http.ResponseWriter, r *http.Request) {
 		response.Err(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.UserID == "" {
-		response.Err(w, http.StatusBadRequest, "user_id is required")
+	if !validateUUID(w, req.UserID, "user_id") {
 		return
 	}
 

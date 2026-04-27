@@ -70,8 +70,8 @@ func (r *userRepo) List(ctx context.Context) ([]*domain.User, error) {
 
 func (r *userRepo) GetByID(ctx context.Context, id string) (*domain.User, error) {
 	u := &domain.User{}
-	err := r.db.QueryRowContext(ctx, `SELECT id, username FROM users WHERE id = $1`, id).
-		Scan(&u.ID, &u.Username)
+	err := r.db.QueryRowContext(ctx, `SELECT id, username, created_at FROM users WHERE id = $1`, id).
+		Scan(&u.ID, &u.Username, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
