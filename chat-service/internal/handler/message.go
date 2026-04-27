@@ -40,6 +40,9 @@ func toMessageResponse(m *domain.Message) messageResponse {
 // ListMessages handles GET /api/v1/rooms/:id/messages?limit=50&offset=0
 func (h *Handler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	roomID := chi.URLParam(r, "id")
+	if !validateUUID(w, roomID, "room id") {
+		return
+	}
 	userID, _ := middleware.UserIDFromContext(r.Context())
 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))

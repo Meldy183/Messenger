@@ -94,8 +94,12 @@ func (h *Handler) readPump(conn *websocket.Conn, client *hub.Client, r *http.Req
 }
 
 func (h *Handler) handleSendMessage(r *http.Request, client *hub.Client, frame inboundFrame) {
-	if frame.RoomID == "" || frame.Content == "" {
-		h.sendError(client, "room_id and content are required")
+	if frame.Content == "" {
+		h.sendError(client, "content is required")
+		return
+	}
+	if _, err := uuid.Parse(frame.RoomID); frame.RoomID == "" || err != nil {
+		h.sendError(client, "invalid room_id")
 		return
 	}
 

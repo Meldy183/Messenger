@@ -35,12 +35,12 @@ func (m *mockUserSvc) GetByID(ctx context.Context, id string) (*domain.User, err
 }
 
 type mockRoomSvc struct {
-	createFn      func(ctx context.Context, name, createdBy string) (*domain.Room, error)
-	joinFn        func(ctx context.Context, roomID, userID string) error
-	leaveFn       func(ctx context.Context, roomID, userID string) error
-	listPublicFn  func(ctx context.Context) ([]*domain.Room, error)
-	listJoinedFn  func(ctx context.Context, userID string) ([]*domain.Room, error)
-	isMemberFn    func(ctx context.Context, roomID, userID string) (bool, error)
+	createFn     func(ctx context.Context, name, createdBy string) (*domain.Room, error)
+	joinFn       func(ctx context.Context, roomID, userID string) error
+	leaveFn      func(ctx context.Context, roomID, userID string) error
+	listPublicFn func(ctx context.Context) ([]*domain.Room, error)
+	listJoinedFn func(ctx context.Context, userID string) ([]*domain.Room, error)
+	isMemberFn   func(ctx context.Context, roomID, userID string) (bool, error)
 }
 
 func (m *mockRoomSvc) Create(ctx context.Context, name, createdBy string) (*domain.Room, error) {
@@ -90,6 +90,13 @@ func (m *mockMsgSvc) History(ctx context.Context, roomID, userID string, limit, 
 
 const testSecret = "test-secret"
 
+// Well-formed UUIDs for use in path params.
+const (
+	testRoomUUID = "11111111-1111-1111-1111-111111111111"
+	testUserUUID = "22222222-2222-2222-2222-222222222222"
+	testDMUUID   = "33333333-3333-3333-3333-333333333333"
+)
+
 // signedToken creates a HS256 JWT with the given subject and the shared test secret.
 func signedToken(subject string) string {
 	claims := jwt.RegisteredClaims{
@@ -102,18 +109,14 @@ func signedToken(subject string) string {
 	return tok
 }
 
-// withUserID injects a userID into the context the same way middleware.Auth does,
-// but without needing an actual HTTP round-trip through the middleware stack.
-// Because userIDKey is unexported we route through the real middleware by signing
-// a token and wrapping the handler once.
+// withUserID injects a userID into the context the same way middleware.Auth does.
 func withUserID(userID string, next http.Handler) http.Handler {
 	return middleware.Auth(testSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// At this point the real middleware has already set userID in ctx.
 		next.ServeHTTP(w, r)
 	}))
 }
 
-// newAuthedRequest returns a GET request with a valid Bearer token for userID.
+// newAuthedRequest returns a request with a valid Bearer token for userID.
 func newAuthedRequest(method, target, userID string, body []byte) *http.Request {
 	var req *http.Request
 	if body != nil {
@@ -139,7 +142,7 @@ func newHandler(
 func defaultUserSvc() *mockUserSvc {
 	return &mockUserSvc{
 		listFn: func(ctx context.Context) ([]*domain.User, error) {
-			return []*domain.User{{ID: "u1", Username: "alice"}}, nil
+			return []*domain.User{{ID: testUserUUID, Username: "alice"}}, nil
 		},
 		getByIDFn: func(ctx context.Context, id string) (*domain.User, error) {
 			return &domain.User{ID: id, Username: "alice"}, nil
@@ -151,15 +154,15 @@ func defaultRoomSvc() *mockRoomSvc {
 	name := "general"
 	return &mockRoomSvc{
 		createFn: func(ctx context.Context, n, createdBy string) (*domain.Room, error) {
-			return &domain.Room{ID: "r1", Name: &name, CreatedBy: createdBy, CreatedAt: time.Now()}, nil
+			return &domain.Room{ID: testRoomUUID, Name: &name, CreatedBy: createdBy, CreatedAt: time.Now()}, nil
 		},
-		joinFn:   func(ctx context.Context, roomID, userID string) error { return nil },
-		leaveFn:  func(ctx context.Context, roomID, userID string) error { return nil },
+		joinFn:  func(ctx context.Context, roomID, userID string) error { return nil },
+		leaveFn: func(ctx context.Context, roomID, userID string) error { return nil },
 		listPublicFn: func(ctx context.Context) ([]*domain.Room, error) {
-			return []*domain.Room{{ID: "r1", Name: &name}}, nil
+			return []*domain.Room{{ID: testRoomUUID, Name: &name}}, nil
 		},
 		listJoinedFn: func(ctx context.Context, userID string) ([]*domain.Room, error) {
-			return []*domain.Room{{ID: "r1", Name: &name}}, nil
+			return []*domain.Room{{ID: testRoomUUID, Name: &name}}, nil
 		},
 		isMemberFn: func(ctx context.Context, roomID, userID string) (bool, error) { return true, nil },
 	}
@@ -169,7 +172,7 @@ func defaultDMSvc() *mockDMSvc {
 	return &mockDMSvc{
 		createOrGetFn: func(ctx context.Context, r, t string) (*domain.DmRoom, error) {
 			return &domain.DmRoom{
-				Room:      &domain.Room{ID: "dm1"},
+				Room:      &domain.Room{ID: testDMUUID},
 				OtherUser: &domain.User{ID: t, Username: "bob"},
 			}, nil
 		},
@@ -190,14 +193,24 @@ func defaultMsgSvc() *mockMsgSvc {
 	}
 }
 
+// chiCtx wraps a handler so that chi URL params are available via chi.URLParam.
+func chiCtx(paramKey, paramVal string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add(paramKey, paramVal)
+		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ── ListUsers ─────────────────────────────────────────────────────────────────
 
 func TestListUsers(t *testing.T) {
 	t.Run("success 200", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/users", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/users", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.ListUsers)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.ListUsers)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -210,9 +223,9 @@ func TestListUsers(t *testing.T) {
 			},
 		}
 		h := newHandler(userSvc, defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/users", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/users", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.ListUsers)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.ListUsers)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusInternalServerError {
 			t.Fatalf("expected 500, got %d", rr.Code)
 		}
@@ -224,9 +237,9 @@ func TestListUsers(t *testing.T) {
 func TestMe(t *testing.T) {
 	t.Run("success 200", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/users/me", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/users/me", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.Me)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.Me)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -239,9 +252,9 @@ func TestMe(t *testing.T) {
 			},
 		}
 		h := newHandler(userSvc, defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/users/me", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/users/me", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.Me)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.Me)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d", rr.Code)
 		}
@@ -254,9 +267,9 @@ func TestCreateRoom(t *testing.T) {
 	t.Run("success 201", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
 		body, _ := json.Marshal(map[string]string{"name": "general"})
-		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms", "u1", body)
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms", testUserUUID, body)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.CreateRoom)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.CreateRoom)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -269,9 +282,9 @@ func TestCreateRoom(t *testing.T) {
 		}
 		h := newHandler(defaultUserSvc(), roomSvc, defaultDMSvc(), defaultMsgSvc(), hub.New())
 		body, _ := json.Marshal(map[string]string{"name": "taken"})
-		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms", "u1", body)
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms", testUserUUID, body)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.CreateRoom)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.CreateRoom)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusConflict {
 			t.Fatalf("expected 409, got %d", rr.Code)
 		}
@@ -280,9 +293,9 @@ func TestCreateRoom(t *testing.T) {
 	t.Run("empty name 400", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
 		body, _ := json.Marshal(map[string]string{"name": "   "})
-		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms", "u1", body)
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms", testUserUUID, body)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.CreateRoom)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.CreateRoom)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", rr.Code)
 		}
@@ -294,9 +307,9 @@ func TestCreateRoom(t *testing.T) {
 func TestListRooms(t *testing.T) {
 	t.Run("success 200", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.ListRooms)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.ListRooms)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -308,9 +321,9 @@ func TestListRooms(t *testing.T) {
 func TestListJoinedRooms(t *testing.T) {
 	t.Run("success 200", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms/me", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms/me", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		withUserID("u1", http.HandlerFunc(h.ListJoinedRooms)).ServeHTTP(rr, req)
+		withUserID(testUserUUID, http.HandlerFunc(h.ListJoinedRooms)).ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -319,23 +332,12 @@ func TestListJoinedRooms(t *testing.T) {
 
 // ── JoinRoom ──────────────────────────────────────────────────────────────────
 
-// chiCtx wraps a handler so that chi URL params are available via chi.URLParam.
-func chiCtx(paramKey, paramVal string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rctx := chi.NewRouteContext()
-		rctx.URLParams.Add(paramKey, paramVal)
-		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
-		next.ServeHTTP(w, r)
-	})
-}
-
 func TestJoinRoom(t *testing.T) {
 	t.Run("success 204", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/r1/join", "u1", nil)
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/"+testRoomUUID+"/join", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		handler := chiCtx("id", "r1", withUserID("u1", http.HandlerFunc(h.JoinRoom)))
-		handler.ServeHTTP(rr, req)
+		chiCtx("id", testRoomUUID, withUserID(testUserUUID, http.HandlerFunc(h.JoinRoom))).ServeHTTP(rr, req)
 		if rr.Code != http.StatusNoContent {
 			t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -343,14 +345,11 @@ func TestJoinRoom(t *testing.T) {
 
 	t.Run("not found 404", func(t *testing.T) {
 		roomSvc := defaultRoomSvc()
-		roomSvc.joinFn = func(ctx context.Context, roomID, userID string) error {
-			return service.ErrNotFound
-		}
+		roomSvc.joinFn = func(ctx context.Context, roomID, userID string) error { return service.ErrNotFound }
 		h := newHandler(defaultUserSvc(), roomSvc, defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/missing/join", "u1", nil)
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/"+testRoomUUID+"/join", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		handler := chiCtx("id", "missing", withUserID("u1", http.HandlerFunc(h.JoinRoom)))
-		handler.ServeHTTP(rr, req)
+		chiCtx("id", testRoomUUID, withUserID(testUserUUID, http.HandlerFunc(h.JoinRoom))).ServeHTTP(rr, req)
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d", rr.Code)
 		}
@@ -358,16 +357,33 @@ func TestJoinRoom(t *testing.T) {
 
 	t.Run("is DM 403", func(t *testing.T) {
 		roomSvc := defaultRoomSvc()
-		roomSvc.joinFn = func(ctx context.Context, roomID, userID string) error {
-			return service.ErrIsDMRoom
-		}
+		roomSvc.joinFn = func(ctx context.Context, roomID, userID string) error { return service.ErrIsDMRoom }
 		h := newHandler(defaultUserSvc(), roomSvc, defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/dm1/join", "u1", nil)
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/"+testDMUUID+"/join", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		handler := chiCtx("id", "dm1", withUserID("u1", http.HandlerFunc(h.JoinRoom)))
-		handler.ServeHTTP(rr, req)
+		chiCtx("id", testDMUUID, withUserID(testUserUUID, http.HandlerFunc(h.JoinRoom))).ServeHTTP(rr, req)
 		if rr.Code != http.StatusForbidden {
 			t.Fatalf("expected 403, got %d", rr.Code)
+		}
+	})
+
+	t.Run("empty room id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms//join", testUserUUID, nil)
+		rr := httptest.NewRecorder()
+		chiCtx("id", "", withUserID(testUserUUID, http.HandlerFunc(h.JoinRoom))).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("invalid uuid room id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/not-a-uuid/join", testUserUUID, nil)
+		rr := httptest.NewRecorder()
+		chiCtx("id", "not-a-uuid", withUserID(testUserUUID, http.HandlerFunc(h.JoinRoom))).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 }
@@ -377,12 +393,31 @@ func TestJoinRoom(t *testing.T) {
 func TestLeaveRoom(t *testing.T) {
 	t.Run("success 204", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/r1/leave", "u1", nil)
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/"+testRoomUUID+"/leave", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		handler := chiCtx("id", "r1", withUserID("u1", http.HandlerFunc(h.LeaveRoom)))
-		handler.ServeHTTP(rr, req)
+		chiCtx("id", testRoomUUID, withUserID(testUserUUID, http.HandlerFunc(h.LeaveRoom))).ServeHTTP(rr, req)
 		if rr.Code != http.StatusNoContent {
 			t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("empty room id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms//leave", testUserUUID, nil)
+		rr := httptest.NewRecorder()
+		chiCtx("id", "", withUserID(testUserUUID, http.HandlerFunc(h.LeaveRoom))).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("invalid uuid room id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		req := newAuthedRequest(http.MethodPost, "/api/v1/rooms/not-a-uuid/leave", testUserUUID, nil)
+		rr := httptest.NewRecorder()
+		chiCtx("id", "not-a-uuid", withUserID(testUserUUID, http.HandlerFunc(h.LeaveRoom))).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 }
@@ -392,10 +427,9 @@ func TestLeaveRoom(t *testing.T) {
 func TestListMessages(t *testing.T) {
 	t.Run("success 200", func(t *testing.T) {
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms/r1/messages", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms/"+testRoomUUID+"/messages", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		handler := chiCtx("id", "r1", withUserID("u1", http.HandlerFunc(h.ListMessages)))
-		handler.ServeHTTP(rr, req)
+		chiCtx("id", testRoomUUID, withUserID(testUserUUID, http.HandlerFunc(h.ListMessages))).ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -407,12 +441,83 @@ func TestListMessages(t *testing.T) {
 			return nil, service.ErrForbidden
 		}
 		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), msgSvc, hub.New())
-		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms/r1/messages", "u1", nil)
+		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms/"+testRoomUUID+"/messages", testUserUUID, nil)
 		rr := httptest.NewRecorder()
-		handler := chiCtx("id", "r1", withUserID("u1", http.HandlerFunc(h.ListMessages)))
-		handler.ServeHTTP(rr, req)
+		chiCtx("id", testRoomUUID, withUserID(testUserUUID, http.HandlerFunc(h.ListMessages))).ServeHTTP(rr, req)
 		if rr.Code != http.StatusForbidden {
 			t.Fatalf("expected 403, got %d", rr.Code)
+		}
+	})
+
+	t.Run("empty room id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms//messages", testUserUUID, nil)
+		rr := httptest.NewRecorder()
+		chiCtx("id", "", withUserID(testUserUUID, http.HandlerFunc(h.ListMessages))).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("invalid uuid room id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		req := newAuthedRequest(http.MethodGet, "/api/v1/rooms/not-a-uuid/messages", testUserUUID, nil)
+		rr := httptest.NewRecorder()
+		chiCtx("id", "not-a-uuid", withUserID(testUserUUID, http.HandlerFunc(h.ListMessages))).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+}
+
+// ── CreateOrGetDM ─────────────────────────────────────────────────────────────
+
+func TestCreateOrGetDM(t *testing.T) {
+	t.Run("success 201", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		body, _ := json.Marshal(map[string]string{"user_id": testUserUUID})
+		req := newAuthedRequest(http.MethodPost, "/api/v1/dms", testUserUUID, body)
+		rr := httptest.NewRecorder()
+		withUserID(testUserUUID, http.HandlerFunc(h.CreateOrGetDM)).ServeHTTP(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("empty user_id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		body, _ := json.Marshal(map[string]string{"user_id": ""})
+		req := newAuthedRequest(http.MethodPost, "/api/v1/dms", testUserUUID, body)
+		rr := httptest.NewRecorder()
+		withUserID(testUserUUID, http.HandlerFunc(h.CreateOrGetDM)).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("invalid uuid user_id 400", func(t *testing.T) {
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), hub.New())
+		body, _ := json.Marshal(map[string]string{"user_id": "not-a-uuid"})
+		req := newAuthedRequest(http.MethodPost, "/api/v1/dms", testUserUUID, body)
+		rr := httptest.NewRecorder()
+		withUserID(testUserUUID, http.HandlerFunc(h.CreateOrGetDM)).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("self DM 400", func(t *testing.T) {
+		dmSvc := defaultDMSvc()
+		dmSvc.createOrGetFn = func(ctx context.Context, r, t string) (*domain.DmRoom, error) {
+			return nil, service.ErrSelfDM
+		}
+		h := newHandler(defaultUserSvc(), defaultRoomSvc(), dmSvc, defaultMsgSvc(), hub.New())
+		body, _ := json.Marshal(map[string]string{"user_id": testDMUUID})
+		req := newAuthedRequest(http.MethodPost, "/api/v1/dms", testUserUUID, body)
+		rr := httptest.NewRecorder()
+		withUserID(testUserUUID, http.HandlerFunc(h.CreateOrGetDM)).ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 }
@@ -423,23 +528,22 @@ func TestInternalBroadcast(t *testing.T) {
 	t.Run("success 204 — hub.Broadcast called", func(t *testing.T) {
 		h := hub.New()
 
-		// Subscribe a client to room "r1" so we can verify the message arrives.
 		client := &hub.Client{
-			UserID:   "u1",
+			UserID:   testUserUUID,
 			Username: "alice",
 			Send:     make(chan []byte, 8),
 		}
-		h.Subscribe("r1", client)
+		h.Subscribe(testRoomUUID, client)
 
 		handler := newHandler(defaultUserSvc(), defaultRoomSvc(), defaultDMSvc(), defaultMsgSvc(), h)
 
 		payload := map[string]interface{}{
-			"room_id": "r1",
+			"room_id": testRoomUUID,
 			"message": map[string]interface{}{
-				"id":              "m1",
-				"room_id":         "r1",
-				"sender_id":       "u2",
-				"sender_username": "bob",
+				"id":              "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+				"room_id":         testRoomUUID,
+				"sender_id":       testUserUUID,
+				"sender_username": "alice",
 				"content":         "hello",
 				"created_at":      time.Now().Format(time.RFC3339),
 			},
@@ -454,7 +558,6 @@ func TestInternalBroadcast(t *testing.T) {
 			t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
 		}
 
-		// The hub broadcasts to all subscribed clients; check the client received it.
 		select {
 		case msg := <-client.Send:
 			if !strings.Contains(string(msg), "new_message") {

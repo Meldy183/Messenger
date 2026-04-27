@@ -106,6 +106,9 @@ func (h *Handler) ListJoinedRooms(w http.ResponseWriter, r *http.Request) {
 // JoinRoom handles POST /api/v1/rooms/:id/join
 func (h *Handler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	roomID := chi.URLParam(r, "id")
+	if !validateUUID(w, roomID, "room id") {
+		return
+	}
 	userID, _ := middleware.UserIDFromContext(r.Context())
 
 	if err := h.roomSvc.Join(r.Context(), roomID, userID); err != nil {
@@ -128,6 +131,9 @@ func (h *Handler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 // LeaveRoom handles POST /api/v1/rooms/:id/leave
 func (h *Handler) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	roomID := chi.URLParam(r, "id")
+	if !validateUUID(w, roomID, "room id") {
+		return
+	}
 	userID, _ := middleware.UserIDFromContext(r.Context())
 
 	if err := h.roomSvc.Leave(r.Context(), roomID, userID); err != nil {

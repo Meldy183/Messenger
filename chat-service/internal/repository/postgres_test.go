@@ -59,9 +59,9 @@ func TestUserGetByID(t *testing.T) {
 		repo, mock := newTestRepo(t)
 		ctx := context.Background()
 
-		rows := sqlmock.NewRows([]string{"id", "username"}).
-			AddRow("user-1", "alice")
-		mock.ExpectQuery(`SELECT id, username FROM users WHERE id = \$1`).
+		rows := sqlmock.NewRows([]string{"id", "username", "created_at"}).
+			AddRow("user-1", "alice", time.Now())
+		mock.ExpectQuery(`SELECT id, username, created_at FROM users WHERE id = \$1`).
 			WithArgs("user-1").
 			WillReturnRows(rows)
 
@@ -84,7 +84,7 @@ func TestUserGetByID(t *testing.T) {
 		repo, mock := newTestRepo(t)
 		ctx := context.Background()
 
-		mock.ExpectQuery(`SELECT id, username FROM users WHERE id = \$1`).
+		mock.ExpectQuery(`SELECT id, username, created_at FROM users WHERE id = \$1`).
 			WithArgs("missing").
 			WillReturnError(sql.ErrNoRows)
 
