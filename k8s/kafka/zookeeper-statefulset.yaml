@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: zookeeper
-          image: bitnami/zookeeper:3.9
+          image: ghcr.io/element-hq/bitnamilegacy/zookeeper:3.9.1-debian-12-r15
           ports:
             - containerPort: 2181
           env:
