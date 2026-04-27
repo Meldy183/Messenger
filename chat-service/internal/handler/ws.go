@@ -38,6 +38,7 @@ func (h *Handler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		logger.L(r.Context()).Warn("websocket upgrade failed", zap.Error(err))
 		return
 	}
 
