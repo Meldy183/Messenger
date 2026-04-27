@@ -1,4 +1,14 @@
-.idea
+# IDE files
+.idea/
+.[Vv][Ss][Cc]ode*
+
+# Environment files
 *.env
 .gitignore
 .claude
+=======
+
+
+#k8s secrets
+secrets.yaml
+*.secret.yaml

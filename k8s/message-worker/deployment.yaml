@@ -33,3 +33,22 @@ spec:
               value: message-worker
             - name: CHAT_SERVICE_URL
               value: http://chat-service:8081
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  now=$(date +%s)
+                  hb=$(cat /tmp/worker-heartbeat 2>/dev/null || echo 0)
+                  [ $((now - hb)) -lt 120 ]
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
