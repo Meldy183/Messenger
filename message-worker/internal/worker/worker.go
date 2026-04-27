@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +50,10 @@ type Worker struct {
 	log            *zap.Logger
 }
 
+const (
+	heartbeatPath = "/tmp/worker-heartbeat"
+)
+
 func New(brokers, groupID string, db *sql.DB, chatServiceURL string, log *zap.Logger) *Worker {
 	return &Worker{
 		brokers:        strings.Split(brokers, ","),
@@ -74,6 +80,8 @@ func (w *Worker) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	for {
+		w.markHeartbeat()
+
 		topics, err := w.fetchTopics(ctx)
 		if err != nil {
 			w.log.Warn("failed to fetch room topics", zap.Error(err))
@@ -113,6 +121,8 @@ func (w *Worker) Run(ctx context.Context) error {
 // or the context is cancelled.
 func (w *Worker) consumeBatch(ctx context.Context, reader *kafkaio.Reader, ticker *time.Ticker) error {
 	for {
+		w.markHeartbeat()
+
 		select {
 		case <-ctx.Done():
 			return nil
@@ -247,4 +257,11 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func (w *Worker) markHeartbeat() {
+	now := strconv.FormatInt(time.Now().Unix(), 10)
+	if err := os.WriteFile(heartbeatPath, []byte(now), 0o644); err != nil {
+		w.log.Warn("failed to update worker heartbeat", zap.Error(err))
+	}
 }
