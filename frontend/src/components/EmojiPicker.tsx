@@ -1,0 +1,59 @@
+const CATEGORIES = [
+  {
+    label: 'Smileys',
+    emojis: [
+      '😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😍','🥰','😘',
+      '😋','😛','😝','😜','🤪','🤓','😎','🥳','😏','😒','😔','😟','😕','😢','😭','😤',
+      '😠','😡','🤯','😳','🥵','😱','😨','😰','😓','🤔','🤭','🤫','😶','😐','😑','🙄',
+      '😬','😪','🤤','😴','🤒','🤕','🤢','🤮','🤧','🥴','🥸','😵','🫡','🫣',
+    ],
+  },
+  {
+    label: 'Gestures',
+    emojis: [
+      '👍','👎','👊','✊','🤛','🤜','🤞','✌️','🤟','🤘','👌','🤌','🤏',
+      '👈','👉','👆','👇','☝️','✋','🤚','🖐️','🖖','👋','🤙','💪','🙌','👐','🙏',
+    ],
+  },
+  {
+    label: 'Hearts',
+    emojis: [
+      '❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💕','💞','💓','💗','💖','💘','💝','💔','❣️',
+    ],
+  },
+  {
+    label: 'Fun',
+    emojis: [
+      '🔥','✨','⭐','🌟','💫','⚡','🎉','🎊','🎈','🎁','🏆','🥇','🎯','💡','🪄','💎',
+      '🌈','☀️','🌙','❄️','🌊','🍀','🎵','🎶','🎸','🎮','🎲','🎨','🖌️','📸','🚀','💯',
+    ],
+  },
+];
+
+interface Props {
+  onSelect: (emoji: string) => void;
+}
+
+export default function EmojiPicker({ onSelect }: Props) {
+  return (
+    <div className="emoji-picker">
+      {CATEGORIES.map(cat => (
+        <div key={cat.label} className="emoji-category">
+          <div className="emoji-category-label">{cat.label}</div>
+          <div className="emoji-grid">
+            {cat.emojis.map(e => (
+              <button
+                key={e}
+                type="button"
+                className="emoji-btn"
+                onClick={() => onSelect(e)}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
