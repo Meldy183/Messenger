@@ -62,6 +62,8 @@ func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L(r.Context()).Info("room created", zap.String("room_id", room.ID), zap.String("name", req.Name), zap.String("user_id", userID))
+
 	// Provision Kafka topic — best-effort; log failure but don't fail the HTTP response.
 	go func() {
 		if err := kafka.CreateTopic(h.kafkaBroker, room.ID); err != nil {
@@ -125,6 +127,7 @@ func (h *Handler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	// If the user has an active WebSocket session, subscribe them immediately.
 	h.hub.SubscribeUser(roomID, userID)
+	logger.L(r.Context()).Info("user joined room", zap.String("room_id", roomID), zap.String("user_id", userID))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -141,5 +144,6 @@ func (h *Handler) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 		response.Err(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	logger.L(r.Context()).Info("user left room", zap.String("room_id", roomID), zap.String("user_id", userID))
 	w.WriteHeader(http.StatusNoContent)
 }

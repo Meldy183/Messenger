@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"go.uber.org/zap"
+
 	"github.com/fyodor/messenger/chat-service/internal/domain"
 )
 
@@ -39,7 +41,7 @@ func drainOne(c *Client) ([]byte, bool) {
 
 // TestSubscribeAndBroadcast verifies that a subscribed client receives the broadcast.
 func TestSubscribeAndBroadcast(t *testing.T) {
-	h := New()
+	h := New(zap.NewNop())
 	c := newTestClient("u1")
 
 	h.Subscribe("room-a", c)
@@ -64,14 +66,14 @@ func TestSubscribeAndBroadcast(t *testing.T) {
 
 // TestBroadcastNoSubscribers verifies no panic when room has no clients.
 func TestBroadcastNoSubscribers(t *testing.T) {
-	h := New()
+	h := New(zap.NewNop())
 	// Should not panic even with zero subscribers.
 	h.Broadcast("empty-room", sampleMessage("empty-room"))
 }
 
 // TestUnsubscribe verifies that after Unsubscribe the client stops receiving messages.
 func TestUnsubscribe(t *testing.T) {
-	h := New()
+	h := New(zap.NewNop())
 	c := newTestClient("u1")
 
 	h.Subscribe("room-a", c)
@@ -85,7 +87,7 @@ func TestUnsubscribe(t *testing.T) {
 
 // TestMultipleClientsAllReceive verifies every subscribed client receives the broadcast.
 func TestMultipleClientsAllReceive(t *testing.T) {
-	h := New()
+	h := New(zap.NewNop())
 	c1 := newTestClient("u1")
 	c2 := newTestClient("u2")
 	c3 := newTestClient("u3")
@@ -105,7 +107,7 @@ func TestMultipleClientsAllReceive(t *testing.T) {
 
 // TestBroadcastIsolatedByRoom verifies that a broadcast to room A doesn't reach room B clients.
 func TestBroadcastIsolatedByRoom(t *testing.T) {
-	h := New()
+	h := New(zap.NewNop())
 	cA := newTestClient("u1")
 	cB := newTestClient("u2")
 

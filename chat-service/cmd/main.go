@@ -38,14 +38,14 @@ func main() {
 
 	repo := repository.NewPostgresRepository(db)
 
-	wsHub := hub.New()
+	wsHub := hub.New(l)
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
 	userSvc := service.NewUserService(repo.AsUserRepo())
 	roomSvc := service.NewRoomService(repo.AsRoomRepo())
 	dmSvc := service.NewDMService(repo.AsDMRepo(), repo.AsUserRepo())
-	msgSvc := service.NewMessageService(repo.AsMessageRepo(), repo.AsRoomRepo(), wsHub)
+	msgSvc := service.NewMessageService(repo.AsMessageRepo(), repo.AsRoomRepo(), wsHub, l)
 
 	firstBroker := strings.Split(cfg.KafkaBrokers, ",")[0]
 	h := handler.New(userSvc, roomSvc, dmSvc, msgSvc, wsHub, producer, cfg.JWTSecret, firstBroker)

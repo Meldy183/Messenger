@@ -50,6 +50,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L(r.Context()).Info("user registered", zap.String("user_id", user.ID), zap.String("username", user.Username))
 	response.JSON(w, http.StatusCreated, userResponse{
 		ID:        user.ID,
 		Username:  user.Username,
@@ -80,5 +81,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L(r.Context()).Info("user logged in", zap.String("username", req.Username))
 	response.JSON(w, http.StatusOK, tokenResponse{Token: token})
 }

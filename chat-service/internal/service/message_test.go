@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"go.uber.org/zap"
+
 	"github.com/fyodor/messenger/chat-service/internal/domain"
 )
 
@@ -24,7 +26,7 @@ func TestMessageSend(t *testing.T) {
 			},
 		}
 		broadcaster := &mockBroadcaster{}
-		svc := NewMessageService(msgRepo, roomRepo, broadcaster)
+		svc := NewMessageService(msgRepo, roomRepo, broadcaster, zap.NewNop())
 		result, err := svc.Send(ctx, "r1", "u1", "alice", "hello")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -40,7 +42,7 @@ func TestMessageSend(t *testing.T) {
 				return false, nil
 			},
 		}
-		svc := NewMessageService(&mockMessageRepo{}, roomRepo, &mockBroadcaster{})
+		svc := NewMessageService(&mockMessageRepo{}, roomRepo, &mockBroadcaster{}, zap.NewNop())
 		_, err := svc.Send(ctx, "r1", "u1", "alice", "hello")
 		if !errors.Is(err, ErrForbidden) {
 			t.Fatalf("expected ErrForbidden, got: %v", err)
@@ -69,7 +71,7 @@ func TestMessageSend(t *testing.T) {
 			},
 		}
 
-		svc := NewMessageService(msgRepo, roomRepo, broadcaster)
+		svc := NewMessageService(msgRepo, roomRepo, broadcaster, zap.NewNop())
 		result, err := svc.Send(ctx, "r1", "u1", "alice", "hi")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -100,7 +102,7 @@ func TestMessageHistory(t *testing.T) {
 				}, nil
 			},
 		}
-		svc := NewMessageService(msgRepo, roomRepo, &mockBroadcaster{})
+		svc := NewMessageService(msgRepo, roomRepo, &mockBroadcaster{}, zap.NewNop())
 		msgs, err := svc.History(ctx, "r1", "u1", 50, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -116,7 +118,7 @@ func TestMessageHistory(t *testing.T) {
 				return false, nil
 			},
 		}
-		svc := NewMessageService(&mockMessageRepo{}, roomRepo, &mockBroadcaster{})
+		svc := NewMessageService(&mockMessageRepo{}, roomRepo, &mockBroadcaster{}, zap.NewNop())
 		_, err := svc.History(ctx, "r1", "u1", 50, 0)
 		if !errors.Is(err, ErrForbidden) {
 			t.Fatalf("expected ErrForbidden, got: %v", err)
