@@ -13,11 +13,6 @@ spec:
         app: promtail
     spec:
       serviceAccountName: promtail
-      tolerations:
-        - key: node-role.kubernetes.io/master
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/control-plane
-          effect: NoSchedule
       containers:
         - name: promtail
           image: grafana/promtail:2.9.0
@@ -25,6 +20,22 @@ spec:
             - -config.file=/etc/promtail/promtail-k8s.yml
           ports:
             - containerPort: 9080
+              name: http-metrics
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
           volumeMounts:
             - name: config
               mountPath: /etc/promtail
@@ -36,13 +47,6 @@ spec:
               readOnly: true
             - name: positions
               mountPath: /run/promtail
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
       volumes:
         - name: config
           configMap:

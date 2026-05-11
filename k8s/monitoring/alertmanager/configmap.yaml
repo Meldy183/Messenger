@@ -8,6 +8,8 @@ data:
     global:
       resolve_timeout: 5m
 
+    # Dev/local setup: alerts are visible in Alertmanager UI only.
+    # No external receiver backend is configured by default.
     route:
       receiver: default
       group_wait: 30s

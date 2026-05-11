@@ -51,4 +51,5 @@ spec:
           configMap:
             name: prometheus-config
         - name: data
+          # Dev/local stack: intentionally ephemeral.
           emptyDir: {}

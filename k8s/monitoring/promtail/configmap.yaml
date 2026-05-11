@@ -19,28 +19,39 @@ data:
       - job_name: kubernetes-pods
         kubernetes_sd_configs:
           - role: pod
+
         pipeline_stages:
-          - json:
-              expressions:
-                level: level
-                msg: msg
-          - labels:
-              level: ""
+          - cri: {}
+          - match:
+              selector: '{namespace="messenger"}'
+              stages:
+                - regex:
+                    expression: '^(?P<level>INFO|WARN|ERROR|DEBUG|TRACE)\b'
+                - labels:
+                    level:
+
         relabel_configs:
           - source_labels: [__meta_kubernetes_namespace]
             action: keep
             regex: messenger
+
           - source_labels: [__meta_kubernetes_pod_label_app]
             target_label: service
+
           - source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
+
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
+
           - source_labels: [__meta_kubernetes_pod_container_name]
             target_label: container
+
+          - target_label: job
+            replacement: kubernetes-pods
+
           - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
             separator: /
+            regex: (.*)
             target_label: __path__
             replacement: /var/log/pods/*$1/*.log
-          - replacement: kubernetes-pods
-            target_label: job
