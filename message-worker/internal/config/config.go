@@ -11,6 +11,7 @@ type Config struct {
 	KafkaBrokers   string
 	KafkaGroupID   string
 	ChatServiceURL string // base URL of chat-service, e.g. http://chat-service:8081
+	MetricsPort    string
 }
 
 func Load() (*Config, error) {
@@ -20,6 +21,7 @@ func Load() (*Config, error) {
 		KafkaBrokers:   getEnv("KAFKA_BROKERS", "localhost:9092"),
 		KafkaGroupID:   getEnv("KAFKA_GROUP_ID", "message-worker"),
 		ChatServiceURL: getEnv("CHAT_SERVICE_URL", "http://localhost:8081"),
+		MetricsPort:    getEnv("METRICS_PORT", "8082"),
 	}
 
 	var errs []error

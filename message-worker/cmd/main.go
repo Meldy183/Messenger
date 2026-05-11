@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os/signal"
 	"syscall"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/fyodor/messenger/message-worker/internal/config"
@@ -33,6 +35,15 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		l.Info("metrics server listening", zap.String("port", cfg.MetricsPort))
+		if err := http.ListenAndServe(":"+cfg.MetricsPort, mux); err != nil {
+			l.Error("metrics server error", zap.Error(err))
+		}
+	}()
 
 	l.Info("message-worker started")
 	if err := w.Run(ctx); err != nil {
