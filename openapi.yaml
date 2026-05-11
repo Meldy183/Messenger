@@ -6,11 +6,21 @@ info:
   description: |
     REST API contract for Messenger MVP_0.
 
+    ## Services and ports
+
+    | Service | K8s (via Ingress) | docker-compose |
+    |---------|-------------------|----------------|
+    | auth-service | http://messenger.local | http://localhost:8080 |
+    | chat-service | http://messenger.local | http://localhost:8081 |
+    | message-worker metrics | — (cluster-internal) | http://localhost:8082 |
+
     ## Envelope
-    Every response uses this wrapper:
+    Every `/api/v1/` response uses this wrapper:
     ```json
     { "data": <payload | null>, "error": <null | { "code": <int>, "message": "<string>" }> }
     ```
+
+    Health, ready, and metrics endpoints return plain text / Prometheus format (no envelope).
 
     ## WebSocket (not expressible in OpenAPI)
     ```
@@ -37,8 +47,12 @@ info:
     No auth. Accessible only within the K8s cluster (ClusterIP, not exposed by Ingress).
 
 servers:
-  - url: http://messenger.local/api/v1
-    description: Local Kubernetes cluster
+  - url: http://messenger.local
+    description: Local Kubernetes cluster (both services via Ingress)
+  - url: http://localhost:8080
+    description: auth-service (docker-compose)
+  - url: http://localhost:8081
+    description: chat-service (docker-compose)
 
 security:
   - bearerAuth: []
@@ -118,26 +132,14 @@ components:
           example: "2026-04-24T10:00:00Z"
 
     DmRoom:
+      description: |
+        Wraps the room object alongside the other participant.
+        Actual JSON shape: `{ "room": { ...Room }, "other_user": { "id": "...", "username": "..." } }`
       type: object
-      required: [id, is_dm, created_by, created_at, other_user]
+      required: [room, other_user]
       properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-          nullable: true
-          example: null
-        is_dm:
-          type: boolean
-          example: true
-        created_by:
-          type: string
-          format: uuid
-        created_at:
-          type: string
-          format: date-time
-          example: "2026-04-24T10:00:00Z"
+        room:
+          $ref: '#/components/schemas/Room'
         other_user:
           $ref: '#/components/schemas/User'
 
@@ -224,9 +226,67 @@ components:
 # ---------------------------------------------------------------------------
 paths:
 
+  # ── Operational ───────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [Operational]
+      summary: Liveness check
+      description: Returns 200 if the service process is up. No external dependencies checked.
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            text/plain:
+              example: "OK"
+
+  /ready:
+    get:
+      tags: [Operational]
+      summary: Readiness check
+      description: Returns 200 if the service can serve traffic (Postgres is reachable). Returns 503 otherwise.
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            text/plain:
+              example: "OK"
+        "503":
+          description: Service not ready (database unreachable)
+          content:
+            text/plain:
+              example: "database not ready"
+
+  /metrics:
+    get:
+      tags: [Operational]
+      summary: Prometheus metrics
+      description: |
+        Exposes Prometheus metrics in text format.
+
+        auth-service and chat-service: available on their respective ports.
+        message-worker: available on port 8082 only (no other HTTP surface).
+
+        Key metrics:
+        - `messenger_http_request_duration_seconds` (histogram) — labels: service, method, path, status
+        - `messenger_http_requests_total` (counter) — labels: service, method, path, status
+        - `messenger_ws_connections_active` (gauge) — chat-service only
+        - `messenger_messages_processed_total` (counter) — message-worker only, labels: status (inserted|duplicate)
+      security: []
+      responses:
+        "200":
+          description: Prometheus text format
+          content:
+            text/plain:
+              example: |
+                # HELP messenger_http_requests_total ...
+                messenger_http_requests_total{method="GET",path="/api/v1/rooms",service="chat-service",status="200"} 42
+
   # ── Auth ──────────────────────────────────────────────────────────────────
 
-  /auth/register:
+  /api/v1/auth/register:
     post:
       tags: [Auth]
       summary: Register a new user
@@ -270,7 +330,7 @@ paths:
                 data: null
                 error: { code: 409, message: username already taken }
 
-  /auth/login:
+  /api/v1/auth/login:
     post:
       tags: [Auth]
       summary: Log in and receive a JWT
@@ -316,7 +376,7 @@ paths:
 
   # ── Users ─────────────────────────────────────────────────────────────────
 
-  /users:
+  /api/v1/users:
     get:
       tags: [Users]
       summary: List all registered users
@@ -334,7 +394,7 @@ paths:
                   error: { nullable: true, example: null }
         "401": { $ref: '#/components/responses/Unauthorized' }
 
-  /users/me:
+  /api/v1/users/me:
     get:
       tags: [Users]
       summary: Get own profile
@@ -352,7 +412,7 @@ paths:
 
   # ── Rooms ─────────────────────────────────────────────────────────────────
 
-  /rooms:
+  /api/v1/rooms:
     post:
       tags: [Rooms]
       summary: Create a public room
@@ -414,7 +474,7 @@ paths:
                   error: { nullable: true, example: null }
         "401": { $ref: '#/components/responses/Unauthorized' }
 
-  /rooms/me:
+  /api/v1/rooms/me:
     get:
       tags: [Rooms]
       summary: List rooms the current user has joined
@@ -433,7 +493,7 @@ paths:
                   error: { nullable: true, example: null }
         "401": { $ref: '#/components/responses/Unauthorized' }
 
-  /rooms/{id}/join:
+  /api/v1/rooms/{id}/join:
     post:
       tags: [Rooms]
       summary: Join a public room
@@ -455,7 +515,7 @@ paths:
                 error: { code: 403, message: cannot join a DM room }
         "404": { $ref: '#/components/responses/NotFound' }
 
-  /rooms/{id}/leave:
+  /api/v1/rooms/{id}/leave:
     post:
       tags: [Rooms]
       summary: Leave a room
@@ -470,7 +530,7 @@ paths:
         "401": { $ref: '#/components/responses/Unauthorized' }
         "404": { $ref: '#/components/responses/NotFound' }
 
-  /rooms/{id}/messages:
+  /api/v1/rooms/{id}/messages:
     get:
       tags: [Messages]
       summary: Get message history for a room
@@ -507,7 +567,7 @@ paths:
 
   # ── Direct Messages ───────────────────────────────────────────────────────
 
-  /dms:
+  /api/v1/dms:
     post:
       tags: [DMs]
       summary: Create or retrieve a DM conversation
