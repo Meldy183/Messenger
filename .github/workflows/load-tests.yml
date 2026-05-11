@@ -1,0 +1,61 @@
+name: Load Tests
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Number of load-test rounds"
+        required: false
+        default: "50"
+
+permissions:
+  contents: read
+
+jobs:
+  load-test:
+    name: Run weekly load test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start test environment
+        run: docker compose up -d --build postgres kafka auth-service chat-service
+
+      - name: Wait for services
+        run: |
+          set -euo pipefail
+
+          wait_for() {
+            local url="$1"
+            local name="$2"
+            for i in {1..90}; do
+              if curl -fsS "$url" >/dev/null; then
+                echo "$name is ready"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "Timed out waiting for $name ($url)"
+            return 1
+          }
+
+          wait_for "http://localhost:8080/ready" "auth-service"
+          wait_for "http://localhost:8081/ready" "chat-service"
+
+      - name: Run load-test script
+        env:
+          ROUNDS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rounds || '50' }}
+        run: bash scripts/load-test.sh "$ROUNDS"
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color postgres kafka auth-service chat-service
+
+      - name: Stop test environment
+        if: always()
+        run: docker compose down -v
