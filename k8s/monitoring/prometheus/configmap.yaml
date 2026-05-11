@@ -24,14 +24,17 @@ data:
           - targets: [localhost:9090]
 
       - job_name: auth-service
+        metrics_path: /metrics
         static_configs:
           - targets: [auth-service:8080]
 
       - job_name: chat-service
+        metrics_path: /metrics
         static_configs:
           - targets: [chat-service:8081]
 
       - job_name: message-worker
+        metrics_path: /metrics
         static_configs:
           - targets: [message-worker:8082]
 

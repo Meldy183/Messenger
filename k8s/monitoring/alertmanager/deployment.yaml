@@ -39,9 +39,16 @@ spec:
               port: 9093
             initialDelaySeconds: 10
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 30
+            periodSeconds: 20
       volumes:
         - name: config
           configMap:
             name: alertmanager-config
         - name: data
+          # Dev/local stack: intentionally ephemeral.
           emptyDir: {}

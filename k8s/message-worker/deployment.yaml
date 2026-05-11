@@ -17,6 +17,9 @@ spec:
         - name: message-worker
           image: messenger/message-worker:latest
           imagePullPolicy: Never
+          ports:
+            - name: metrics
+              containerPort: 8082
           env:
             - name: DB_PASSWORD
               valueFrom:
@@ -33,6 +36,8 @@ spec:
               value: message-worker
             - name: CHAT_SERVICE_URL
               value: http://chat-service:8081
+            - name: METRICS_PORT
+              value: "8082"
           livenessProbe:
             exec:
               command:
