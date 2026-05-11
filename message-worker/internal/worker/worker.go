@@ -158,7 +158,11 @@ func (w *Worker) consumeBatch(ctx context.Context, reader *kafkaio.Reader, ticke
 		if inserted {
 			if err := w.broadcast(msg, createdAt); err != nil {
 				w.log.Warn("broadcast failed (message persisted)", zap.String("msg_id", msg.ID), zap.Error(err))
+			} else {
+				w.log.Info("message processed", zap.String("msg_id", msg.ID), zap.String("room_id", msg.RoomID), zap.String("sender_id", msg.SenderID))
 			}
+		} else {
+			w.log.Debug("duplicate message skipped", zap.String("msg_id", msg.ID), zap.String("room_id", msg.RoomID))
 		}
 
 		if err := reader.CommitMessages(ctx, m); err != nil {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"github.com/fyodor/messenger/chat-service/internal/domain"
 	"github.com/fyodor/messenger/chat-service/internal/repository"
 	"github.com/google/uuid"
@@ -15,10 +17,11 @@ type messageService struct {
 	repo        repository.MessageRepository
 	roomRepo    repository.RoomRepository
 	broadcaster Broadcaster
+	log         *zap.Logger
 }
 
-func NewMessageService(repo repository.MessageRepository, roomRepo repository.RoomRepository, broadcaster Broadcaster) MessageService {
-	return &messageService{repo: repo, roomRepo: roomRepo, broadcaster: broadcaster}
+func NewMessageService(repo repository.MessageRepository, roomRepo repository.RoomRepository, broadcaster Broadcaster, log *zap.Logger) MessageService {
+	return &messageService{repo: repo, roomRepo: roomRepo, broadcaster: broadcaster, log: log}
 }
 
 func (s *messageService) Send(ctx context.Context, roomID, senderID, senderUsername, content string) (*domain.Message, error) {
@@ -70,7 +73,9 @@ func (s *messageService) History(ctx context.Context, roomID, userID string, lim
 // bug never causes a persisted message to be lost from the caller's perspective.
 func (s *messageService) broadcastSafe(roomID string, msg *domain.Message) {
 	defer func() {
-		recover() // a real impl would log the panic here
+		if r := recover(); r != nil {
+			s.log.Error("broadcaster panicked", zap.String("room_id", roomID), zap.String("msg_id", msg.ID), zap.Any("panic", r))
+		}
 	}()
 	s.broadcaster.Broadcast(roomID, msg)
 }

@@ -44,7 +44,10 @@ func (h *Handler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 	client := hub.NewClient(userID, username, conn)
 	h.hub.RegisterClient(client)
-	defer h.hub.Unsubscribe(client)
+	defer func() {
+		h.hub.Unsubscribe(client)
+		logger.L(r.Context()).Info("ws session ended", zap.String("user_id", userID), zap.String("username", username))
+	}()
 
 	// Subscribe to all joined public rooms.
 	rooms, err := h.roomSvc.ListJoined(r.Context(), userID)
@@ -125,7 +128,9 @@ func (h *Handler) handleSendMessage(r *http.Request, client *hub.Client, frame i
 	if err := h.producer.Produce(r.Context(), msg); err != nil {
 		logger.L(r.Context()).Error("kafka produce failed", zap.Error(err))
 		h.sendError(client, "failed to send message")
+		return
 	}
+	logger.L(r.Context()).Debug("message produced to kafka", zap.String("msg_id", msg.ID), zap.String("room_id", frame.RoomID), zap.String("user_id", client.UserID))
 }
 
 func (h *Handler) sendError(client *hub.Client, msg string) {

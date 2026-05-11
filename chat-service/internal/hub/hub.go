@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 
 	"github.com/fyodor/messenger/chat-service/internal/domain"
 )
@@ -22,12 +23,14 @@ type Hub struct {
 	mu      sync.RWMutex
 	rooms   map[string]map[*Client]struct{} // roomID → clients
 	byUser  map[string]*Client              // userID → active client (at most one WS session per user)
+	log     *zap.Logger
 }
 
-func New() *Hub {
+func New(log *zap.Logger) *Hub {
 	return &Hub{
 		rooms:  make(map[string]map[*Client]struct{}),
 		byUser: make(map[string]*Client),
+		log:    log,
 	}
 }
 
@@ -62,6 +65,7 @@ func (h *Hub) RegisterClient(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.byUser[c.UserID] = c
+	h.log.Info("ws client connected", zap.String("user_id", c.UserID), zap.String("username", c.Username))
 }
 
 func (h *Hub) Unsubscribe(c *Client) {
@@ -71,18 +75,21 @@ func (h *Hub) Unsubscribe(c *Client) {
 		delete(clients, c)
 	}
 	delete(h.byUser, c.UserID)
+	h.log.Info("ws client disconnected", zap.String("user_id", c.UserID), zap.String("username", c.Username))
 }
 
 // Broadcast implements service.Broadcaster — pushes a message to all clients in the room.
 func (h *Hub) Broadcast(roomID string, msg *domain.Message) {
 	frame, err := json.Marshal(outboundFrame{Type: "new_message", Message: toMsgPayload(msg)})
 	if err != nil {
+		h.log.Error("hub broadcast marshal failed", zap.String("room_id", roomID), zap.String("msg_id", msg.ID), zap.Error(err))
 		return
 	}
 	h.mu.RLock()
 	clients := h.rooms[roomID]
 	h.mu.RUnlock()
 
+	h.log.Debug("broadcasting message", zap.String("room_id", roomID), zap.String("msg_id", msg.ID), zap.Int("clients", len(clients)))
 	for c := range clients {
 		select {
 		case c.Send <- frame:

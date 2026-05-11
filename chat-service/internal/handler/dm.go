@@ -59,6 +59,8 @@ func (h *Handler) CreateOrGetDM(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	logger.L(r.Context()).Info("DM room created or retrieved", zap.String("room_id", dm.Room.ID), zap.String("requester_id", requesterID), zap.String("target_id", req.UserID))
+
 	// Provision Kafka topic for this DM room — best-effort, same as public rooms.
 	go func() {
 		if err := kafka.CreateTopic(h.kafkaBroker, dm.Room.ID); err != nil {
