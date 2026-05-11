@@ -80,6 +80,7 @@ A real-time chat application built as a pet project to explore Kafka-driven mess
 | Real-time transport | WebSocket (`gorilla/websocket`) |
 | Container orchestration | Kubernetes (minikube / kind) |
 | Frontend | React 18 + TypeScript |
+| Observability | Prometheus · Grafana · Loki · Promtail · Alertmanager |
 
 ---
 
@@ -93,6 +94,9 @@ All other services validate tokens **locally** using the shared JWT secret — n
 ```
 POST /api/v1/auth/register   { username, password }
 POST /api/v1/auth/login      { username, password } → { token }
+GET  /health                 → 200 (liveness)
+GET  /ready                  → 200 | 503 (readiness — pings Postgres)
+GET  /metrics                → Prometheus text format
 ```
 
 ---
@@ -115,6 +119,10 @@ POST /api/v1/dms                { user_id } → room (creates or returns existin
 GET  /api/v1/dms                → DM conversations
 
 GET  /api/v1/rooms/:id/messages?limit=50&offset=0 → message history
+
+GET  /health                    → 200 (liveness)
+GET  /ready                     → 200 | 503 (readiness — pings Postgres)
+GET  /metrics                   → Prometheus text format
 ```
 
 **WebSocket:**
@@ -142,7 +150,9 @@ Stateless Kafka consumer. For each message consumed:
 2. Calls `chat-service /internal/broadcast`
 3. Commits Kafka offset
 
-No HTTP server exposed externally. Runs as a background Deployment in K8s.
+Exposes `/metrics` on port **8082** for Prometheus scraping. No other external HTTP surface.
+
+Runs as a background Deployment in K8s; periodic heartbeat file (`/tmp/worker-heartbeat`) can be used for liveness checks.
 
 ---
 
@@ -200,11 +210,12 @@ CREATE TABLE room_members (
 );
 
 CREATE TABLE messages (
-    id          UUID PRIMARY KEY,  -- assigned by chat-service, dedup key
-    room_id     UUID REFERENCES rooms(id),
-    sender_id   UUID REFERENCES users(id),
-    content     TEXT NOT NULL,
-    created_at  TIMESTAMPTZ DEFAULT now()
+    id              UUID PRIMARY KEY,  -- assigned by chat-service, dedup key
+    room_id         UUID REFERENCES rooms(id),
+    sender_id       UUID REFERENCES users(id),
+    sender_username TEXT NOT NULL,     -- denormalized for read performance
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT now()
 );
 ```
 
@@ -217,6 +228,8 @@ messenger/
 ├── auth-service/
 │   ├── cmd/main.go
 │   ├── internal/
+│   │   ├── config/
+│   │   ├── domain/
 │   │   ├── handler/     # HTTP handlers
 │   │   ├── service/     # business logic
 │   │   └── repository/  # Postgres queries
@@ -225,65 +238,111 @@ messenger/
 ├── chat-service/
 │   ├── cmd/main.go
 │   ├── internal/
+│   │   ├── config/
+│   │   ├── domain/
 │   │   ├── handler/     # HTTP + WebSocket handlers
-│   │   ├── service/
-│   │   ├── repository/
+│   │   ├── hub/         # WebSocket hub
 │   │   ├── kafka/       # producer
-│   │   └── ws/          # WebSocket hub
+│   │   ├── repository/
+│   │   └── service/
 │   └── Dockerfile
 │
 ├── message-worker/
 │   ├── cmd/main.go
 │   ├── internal/
-│   │   ├── consumer/    # Kafka consumer loop
-│   │   └── repository/  # Postgres write
+│   │   ├── config/
+│   │   └── worker/      # Kafka consumer, persistence, broadcast
 │   └── Dockerfile
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/       # Login, Register, Rooms, Chat, DMs, Account
+│   │   ├── api/         # REST client
 │   │   ├── components/
-│   │   ├── hooks/       # useWebSocket, useAuth
-│   │   └── api/         # REST client
+│   │   ├── contexts/    # auth context
+│   │   └── pages/       # Login, Register, Rooms, Chat, DMs
 │   └── Dockerfile
+│
+├── pkg/
+│   ├── logger/          # zap setup + context injection
+│   ├── middleware/       # Auth, Logger, Metrics HTTP middleware
+│   ├── postgres/         # database connection helper
+│   └── response/         # JSON envelope helpers
+│
+├── db/
+│   └── schema.sql
+│
+├── monitoring/
+│   ├── prometheus/        # prometheus.yml + alert-rules.yml
+│   ├── alertmanager/      # alertmanager.yml
+│   ├── loki/              # loki-config.yml
+│   ├── promtail/          # promtail-docker.yml + promtail-k8s.yml
+│   └── grafana/
+│       └── provisioning/  # datasources + auto-provisioned dashboard
 │
 ├── k8s/
 │   ├── namespace.yaml
 │   ├── ingress.yaml
 │   ├── postgres/
-│   │   ├── secret.yaml
-│   │   ├── service.yaml
-│   │   └── statefulset.yaml
 │   ├── kafka/
-│   │   ├── service.yaml
-│   │   └── statefulset.yaml
 │   ├── auth-service/
-│   │   ├── configmap.yaml
-│   │   ├── deployment.yaml
-│   │   └── service.yaml
 │   ├── chat-service/
-│   │   ├── configmap.yaml
-│   │   ├── deployment.yaml
-│   │   └── service.yaml
 │   ├── message-worker/
-│   │   ├── configmap.yaml
-│   │   └── deployment.yaml
-│   └── frontend/
-│       ├── configmap.yaml
-│       ├── deployment.yaml
-│       └── service.yaml
+│   ├── frontend/
+│   └── monitoring/        # K8s manifests for the full observability stack
 │
+├── scripts/
+│   └── load-test.sh       # automated load test against docker-compose
+│
+├── docker-compose.yml
 ├── SPEC.md
 └── README.md
 ```
 
-The `k8s/` directory contains the Kubernetes resources needed to run each infrastructure component and service in the cluster:
+---
 
-- `deployment.yaml` for stateless application workloads
-- `statefulset.yaml` for stateful infrastructure such as PostgreSQL or Kafka
-- `service.yaml` for stable in-cluster network access
-- `configmap.yaml` for non-sensitive runtime configuration
-- `secret.yaml` for sensitive values such as passwords or shared JWT secrets
+## Quick Start (docker-compose)
+
+The fastest way to run the full stack locally — no cluster required.
+
+```bash
+docker-compose up -d
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| auth-service | http://localhost:8080 |
+| chat-service | http://localhost:8081 |
+| message-worker metrics | http://localhost:8082/metrics |
+| Grafana | http://localhost:3001 |
+| Prometheus | http://localhost:9090 |
+| Alertmanager | http://localhost:9093 |
+
+To stop and clean up volumes:
+
+```bash
+docker-compose down -v
+```
+
+---
+
+## Load Testing
+
+`scripts/load-test.sh` generates mixed traffic against the running stack (default: 50 rounds).
+
+```bash
+chmod +x scripts/load-test.sh
+./scripts/load-test.sh           # 50 rounds
+./scripts/load-test.sh 200       # custom round count
+```
+
+Each round fires parallel requests covering:
+- Authenticated `GET /rooms`, `GET /users/me` (expect 200)
+- `POST /auth/login` (expect 200)
+- Unauthenticated `GET /rooms` and `GET /users/me` (expect 401)
+- `POST /auth/register` with an empty body (expect 400)
+
+After the script completes, open Grafana at http://localhost:3001 and look at the **Messenger Overview** dashboard to see request rate, error rate, latency, and message throughput panels populated with real data.
 
 ---
 
