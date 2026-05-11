@@ -12,9 +12,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	kafkaio "github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
+
+var messagesProcessed = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "messenger_messages_processed_total",
+	Help: "Total messages processed by the worker.",
+}, []string{"status"})
 
 // KafkaMessage is the payload produced by chat-service.
 type KafkaMessage struct {
@@ -161,8 +168,10 @@ func (w *Worker) consumeBatch(ctx context.Context, reader *kafkaio.Reader, ticke
 			} else {
 				w.log.Info("message processed", zap.String("msg_id", msg.ID), zap.String("room_id", msg.RoomID), zap.String("sender_id", msg.SenderID))
 			}
+			messagesProcessed.WithLabelValues("inserted").Inc()
 		} else {
 			w.log.Debug("duplicate message skipped", zap.String("msg_id", msg.ID), zap.String("room_id", msg.RoomID))
+			messagesProcessed.WithLabelValues("duplicate").Inc()
 		}
 
 		if err := reader.CommitMessages(ctx, m); err != nil {

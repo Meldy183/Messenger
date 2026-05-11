@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/fyodor/messenger/chat-service/internal/config"
@@ -52,6 +53,7 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger(l))
+	r.Use(middleware.Metrics("chat-service"))
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -65,6 +67,8 @@ func main() {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+
+	r.Handle("/metrics", promhttp.Handler())
 
 	// Internal endpoint — no auth required.
 	r.Post("/internal/broadcast", h.InternalBroadcast)

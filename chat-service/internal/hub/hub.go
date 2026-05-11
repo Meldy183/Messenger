@@ -6,10 +6,17 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 
 	"github.com/fyodor/messenger/chat-service/internal/domain"
 )
+
+var wsConnectionsActive = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "messenger_ws_connections_active",
+	Help: "Number of active WebSocket connections.",
+})
 
 const (
 	writeWait  = 10 * time.Second
@@ -65,6 +72,7 @@ func (h *Hub) RegisterClient(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.byUser[c.UserID] = c
+	wsConnectionsActive.Inc()
 	h.log.Info("ws client connected", zap.String("user_id", c.UserID), zap.String("username", c.Username))
 }
 
@@ -75,6 +83,7 @@ func (h *Hub) Unsubscribe(c *Client) {
 		delete(clients, c)
 	}
 	delete(h.byUser, c.UserID)
+	wsConnectionsActive.Dec()
 	h.log.Info("ws client disconnected", zap.String("user_id", c.UserID), zap.String("username", c.Username))
 }
 
