@@ -424,6 +424,81 @@ What they are useful for:
 
 ---
 
+## Monitoring
+
+### What was added
+
+| Component | Purpose | Port |
+|-----------|---------|------|
+| Prometheus | Metrics scraping | 9090 |
+| Alertmanager | Alert routing | 9093 |
+| Loki | Log aggregation | 3100 |
+| Promtail | Log shipping (Docker socket for docker-compose; DaemonSet for K8s) | — |
+| Grafana | Dashboards + log exploration | 3001 (host) |
+
+Pre-configured alert: **HighHTTPErrorRate** — HTTP 5xx rate > 5% over a 5-minute window → severity: warning.
+
+### Metrics exposed by the app
+
+| Metric | Type | Labels | Service |
+|--------|------|--------|---------|
+| `messenger_http_request_duration_seconds` | histogram | service, method, path, status | all HTTP services |
+| `messenger_http_requests_total` | counter | service, method, path, status | all HTTP services |
+| `messenger_ws_connections_active` | gauge | — | chat-service |
+| `messenger_messages_processed_total` | counter | status (inserted or duplicate) | message-worker |
+
+All HTTP services expose a `/metrics` endpoint. `message-worker` exposes it on port 8082.
+
+### Running with docker-compose
+
+```bash
+docker-compose up -d
+```
+
+Access:
+- Grafana: http://localhost:3001 (anonymous admin, no login required)
+- Prometheus: http://localhost:9090
+- Alertmanager: http://localhost:9093
+
+### Running on Kubernetes
+
+```bash
+kubectl apply -f k8s/monitoring/prometheus/
+kubectl apply -f k8s/monitoring/alertmanager/
+kubectl apply -f k8s/monitoring/loki/
+kubectl apply -f k8s/monitoring/promtail/
+kubectl apply -f k8s/monitoring/grafana/
+```
+
+Note: Promtail requires cluster-level RBAC (ClusterRole/ClusterRoleBinding already defined in `k8s/monitoring/promtail/`).
+
+### Dashboard
+
+The "Messenger Overview" dashboard is auto-provisioned in Grafana with 8 panels:
+
+- Request rate and HTTP error rate by service
+- p95/p99 latency by service
+- Active WebSocket connections
+- Messages processed rate (inserted vs duplicate)
+- Duplicate message rate %
+- Live application logs (from Loki)
+
+### File layout
+
+```
+monitoring/
+├── prometheus/        # prometheus.yml + alert-rules.yml
+├── alertmanager/      # alertmanager.yml
+├── loki/              # loki-config.yml
+├── promtail/          # promtail-docker.yml (compose) + promtail-k8s.yml (K8s)
+└── grafana/
+    └── provisioning/  # datasources + auto-provisioned dashboard
+
+k8s/monitoring/        # K8s manifests for all monitoring components
+```
+
+---
+
 ## 3-Day Roadmap
 
 ### Day 1 — Foundation

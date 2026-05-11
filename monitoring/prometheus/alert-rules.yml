@@ -1,0 +1,15 @@
+groups:
+  - name: messenger.rules
+    rules:
+      - alert: HighHTTPErrorRate
+        expr: >
+          sum(rate(messenger_http_requests_total{status=~"5.."}[5m])) by (service)
+          /
+          sum(rate(messenger_http_requests_total[5m])) by (service)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has error rate {{ $value | humanizePercentage }} over the last 5 minutes."
