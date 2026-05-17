@@ -16,42 +16,108 @@ data:
       - url: http://loki.messenger.svc.cluster.local:3100/loki/api/v1/push
 
     scrape_configs:
-      - job_name: kubernetes-pods
-        kubernetes_sd_configs:
-          - role: pod
-
+      - job_name: messenger-app
         pipeline_stages:
           - cri: {}
           - match:
-              selector: '{namespace="messenger"}'
+              selector: '{namespace="messenger",service=~"auth-service|chat-service|message-worker|frontend"}'
               stages:
-                - regex:
-                    expression: '^(?P<level>INFO|WARN|ERROR|DEBUG|TRACE)\b'
+                - json:
+                    expressions:
+                      level: level
+                      msg: msg
+                      caller: caller
                 - labels:
                     level:
+                - output:
+                    source: msg
 
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_namespace]
-            action: keep
-            regex: messenger
+        static_configs:
+          - targets: [localhost]
+            labels:
+              job: messenger-app
+              namespace: messenger
+              service: auth-service
+              __path__: /var/log/pods/messenger_auth-service-*/*/*.log
 
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            target_label: service
+          - targets: [localhost]
+            labels:
+              job: messenger-app
+              namespace: messenger
+              service: chat-service
+              __path__: /var/log/pods/messenger_chat-service-*/*/*.log
 
-          - source_labels: [__meta_kubernetes_namespace]
-            target_label: namespace
+          - targets: [localhost]
+            labels:
+              job: messenger-app
+              namespace: messenger
+              service: message-worker
+              __path__: /var/log/pods/messenger_message-worker-*/*/*.log
 
-          - source_labels: [__meta_kubernetes_pod_name]
-            target_label: pod
+          - targets: [localhost]
+            labels:
+              job: messenger-app
+              namespace: messenger
+              service: frontend
+              __path__: /var/log/pods/messenger_frontend-*/*/*.log
 
-          - source_labels: [__meta_kubernetes_pod_container_name]
-            target_label: container
+      - job_name: messenger-infra
+        pipeline_stages:
+          - cri: {}
 
-          - target_label: job
-            replacement: kubernetes-pods
+        static_configs:
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: postgres
+              __path__: /var/log/pods/messenger_postgres-*/*/*.log
 
-          - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
-            separator: /
-            regex: (.*)
-            target_label: __path__
-            replacement: /var/log/pods/*$1/*.log
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: kafka
+              __path__: /var/log/pods/messenger_kafka-*/*/*.log
+
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: zookeeper
+              __path__: /var/log/pods/messenger_zookeeper-*/*/*.log
+
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: prometheus
+              __path__: /var/log/pods/messenger_prometheus-*/*/*.log
+
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: loki
+              __path__: /var/log/pods/messenger_loki-*/*/*.log
+
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: grafana
+              __path__: /var/log/pods/messenger_grafana-*/*/*.log
+
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: alertmanager
+              __path__: /var/log/pods/messenger_alertmanager-*/*/*.log
+
+          - targets: [localhost]
+            labels:
+              job: messenger-infra
+              namespace: messenger
+              service: promtail
+              __path__: /var/log/pods/messenger_promtail-*/*/*.log

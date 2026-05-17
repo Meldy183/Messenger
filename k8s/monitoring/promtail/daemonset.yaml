@@ -21,6 +21,14 @@ spec:
           ports:
             - containerPort: 9080
               name: http-metrics
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /metrics
